@@ -9,8 +9,7 @@ import pickle
 def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument('--t', help='Num of loop', type=int, default=1)
-    parser.add_argument('--algo-number', help='0: CMAES, 1: SNES, 2: SimpleGA, 3: PEPG, 4: OpenES, 5: CRFMNES',
-                        type=int, default=0)
+    parser.add_argument('--algo-number', help='0: CMAES, 1: SNES, 2: SimpleGA, 3: PEPG, 4: OpenES, 5: CRFMNES', type=int, default=0)
     parser.add_argument('--trials', required=True, nargs="*", help='Num list of robo', type=int)
     parser.add_argument('--env-name', help='Name of environment.', type=str, default='default')
     parser.add_argument('--max-iter', help='Max training iterations.', type=int, default=1000)
@@ -50,7 +49,7 @@ def main(config):
             init_best=config.init_best,
         )
         t_fs.append(t_f)
-        pickle.dump(t_fs, open('log/{}/fitness_transitions.pkl'.format(config.env_name), 'wb'))
+        pickle.dump(t_fs, open('log/{}/algo_number_{}/fitness_transitions.pkl'.format(config.env_name, config.algo_number), 'wb'))
 
 
 if __name__ == '__main__':
