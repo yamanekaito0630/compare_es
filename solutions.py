@@ -2,6 +2,7 @@
 from mpi4py import MPI
 from es.operator import Operator
 
+import cv2
 import gymnasium as gym
 import logging
 import os
@@ -9,6 +10,8 @@ import pickle
 import numpy as np
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
+import matplotlib.pyplot as plt
 
 torch.set_num_threads(1)
 
@@ -147,7 +150,6 @@ class BaseTorchSolution:
         size = comm.Get_size()
 
         if rank == 0:
-            t_f = []
             self.algo_number = algo_number
             self.popsize = size * t
             self.max_iter = max_iter
@@ -200,7 +202,7 @@ class BaseTorchSolution:
 
                 # ESの保存
                 if (n_iter + 1) % save_interval == 0:
-                    pickle.dump(solver, open(log_dir + '/gen_es/es_' + algo + '_{}.pkl'.format(n_iter + 1), 'wb'))
+                    pickle.dump(solver, open(log_dir + '/gen_es/es_{}.pkl'.format(n_iter + 1), 'wb'))
 
                 logger.info(
                     'Iter={0}, '
@@ -208,7 +210,6 @@ class BaseTorchSolution:
                         n_iter + 1, np.max(fitnesses), np.mean(fitnesses), np.min(fitnesses), np.std(fitnesses)))
 
                 best_fitness = max(fitnesses)
-                t_f.append(best_fitness)
                 if best_fitness > best_so_far:
                     best_so_far = best_fitness
                     model_path = os.path.join(log_dir, 'best.npz')
@@ -219,7 +220,6 @@ class BaseTorchSolution:
                     self.save_params(solver=solver, solution=self, model_path=model_path)
             self.reset()
         self.env.close()
-        return t_f
 
 
 class FCSolution(BaseTorchSolution):
@@ -252,3 +252,86 @@ class FCSolution(BaseTorchSolution):
         x = torch.tensor(obs)
         action = self.net(x)
         return action
+
+
+class DCNN(BaseTorchSolution):
+    def __init__(self,
+                 device,
+                 env_name):
+        super(DCNN, self).__init__(device)
+
+        self.env_name = env_name
+        self.env = gym.make(env_name)
+        obs_dim = self.env.observation_space.shape[2]
+        act_dim = self.env.action_space.shape[0]
+        self.prev_x = torch.zeros(self.env.observation_space.shape)
+
+        self.cnn = nn.Sequential(
+            nn.Conv2d(
+                in_channels=obs_dim * 2,
+                out_channels=32,
+                kernel_size=(4, 4),
+                stride=(2, 2),
+            ),
+            nn.Tanh(),
+            nn.Conv2d(
+                in_channels=32,
+                out_channels=32,
+                kernel_size=(4, 4),
+                stride=(2, 2),
+            ),
+            nn.Tanh(),
+            nn.Conv2d(
+                in_channels=32,
+                out_channels=32,
+                kernel_size=(4, 4),
+                stride=(2, 2),
+            ),
+            nn.Tanh(),
+            nn.Conv2d(
+                in_channels=32,
+                out_channels=16,
+                kernel_size=(4, 4),
+                stride=(2, 2),
+            ),
+            nn.Tanh(),
+            nn.Flatten(),
+            nn.Linear(in_features=256, out_features=act_dim, dtype=torch.float32),
+            nn.Tanh(),
+        )
+        self.modules_to_learn.append(self.cnn)
+
+    def _get_action(self, obs):
+        x = torch.tensor(obs)
+        self.x_arg = torch.cat((x, self.prev_x), dim=2).unsqueeze(0) / 255
+        self.prev_x = x
+        self.x_arg = self.x_arg.permute(0, 3, 1, 2)
+        self.output = self.cnn(self.x_arg)
+        return self.output.squeeze(0).cpu().numpy()
+
+    def reset(self):
+        self.prev_x = torch.zeros(self.env.observation_space.shape)
+
+    @staticmethod
+    def to_heatmap(x):
+        x = (x * 255).reshape(-1)
+        cm = plt.get_cmap('jet')
+        x = np.array([cm(int(np.round(xi)))[:3] for xi in x])
+        return (x.reshape(224, 224, 3) * 255).astype(np.uint8)
+
+    def show_gui(self, img, target: int):
+        feat = self.cnn[:4](self.x_arg)
+        feat = feat.clone().detach().requires_grad_(True)
+        output = self.cnn[4:](feat)
+        output[0][target].backward()
+        alpha = torch.mean(feat.grad.view(32, 22 * 22), 1)
+        feat = feat.view(32, 22, 22)
+        L = F.relu(torch.sum(feat * alpha.view(-1, 1, 1), 0)).cpu().detach().numpy()
+        L_min = np.min(L)
+        L_max = np.max(L - L_min)
+        L = (L - L_min) / L_max
+        L = self.to_heatmap(cv2.resize(L, (224, 224)))
+        img = cv2.resize(img, (224, 224))[:, :, ::-1]
+        blended = img * 0.7 + L * 0.3
+        cv2.imshow('render', blended.astype(np.uint8))
+        cv2.waitKey(1)

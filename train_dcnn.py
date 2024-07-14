@@ -1,5 +1,5 @@
 # ライブラリのインポート
-from solutions import FCSolution
+from solutions import DCNN
 
 import argparse
 import torch
@@ -10,9 +10,9 @@ def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument('--t', help='Num of loop', type=int, default=1)
     parser.add_argument('--algo-number', help='0: CMAES, 1: SNES, 2: SimpleGA, 3: PEPG, 4: OpenES, 5: CRFMNES',
-                        type=int, default=0)
+                        type=int, default=4)
     parser.add_argument('--trials', required=True, nargs="*", help='Num list of robo', type=int)
-    parser.add_argument('--env-name', help='Name of environment.', type=str, default='default')
+    parser.add_argument('--env-name', help='Name of environment.', type=str, default='CarRacing-v2')
     parser.add_argument('--max-iter', help='Max training iterations.', type=int, default=1000)
     parser.add_argument('--is-resume', help='Restart training', type=int, default=0)
     parser.add_argument('--from-iter', help='From training iterations.', type=int, default=1)
@@ -26,14 +26,11 @@ def parse_args():
 
 def main(config):
     device = torch.device('cpu')
-    t_fs = []
     for trial_number in config.trials:
         log_dir = 'log/{}/algo_number_{}/trial_{}'.format(config.env_name, config.algo_number, trial_number)
-        agent = FCSolution(
+        agent = DCNN(
             device=device,
-            env_name=config.env_name,
-            num_hidden_layers=2,
-            hidden_dim=32
+            env_name=config.env_name
         )
 
         agent.train(
